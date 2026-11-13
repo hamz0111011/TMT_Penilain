@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Penilaian Pelatihan Berbasis Kompetensi</title>
+
+  <!-- Library xlsx -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <!-- JSZip untuk embed logo ke xlsx -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+
+  <h1>Penilaian Pelatihan Berbasis Kompetensi</h1>
+  <p class="sub">
+    Ketik unit kompetensi, atur jumlah KUK tiap elemen, tempel daftar peserta,
+    klik sel untuk mengganti L / BL, lalu ekspor ke Excel.
+  </p>
+
+  <!-- ===== 1. Informasi & Unit Kompetensi ===== -->
+  <section class="card">
+    <h2>1. Informasi dan unit kompetensi</h2>
+    <div class="grid">
+      <div>
+        <label>Program pelatihan</label>
+        <input id="program">
+      </div>
+      <div>
+        <label>Tempat</label>
+        <input id="tempat">
+      </div>
+      <div>
+        <label>Tanggal</label>
+        <input id="tanggal" type="date">
+      </div>
+      <div>
+        <label>Penjab (penanggung jawab)</label>
+        <input id="penjab" placeholder="Nama penjab">
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:10px">
+      <div style="grid-column:1/-1">
+        <label>Unit kompetensi (isi sendiri, tambah unit lain jika perlu)</label>
+        <div class="row" id="tabs"></div>
+      </div>
+      <div>
+        <label>Kode unit</label>
+        <input id="code" placeholder="Contoh: I.56MIN03.006.2">
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Judul unit</label>
+        <input id="title" placeholder="Ketik judul unit kompetensi">
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 2. Elemen & KUK ===== -->
+  <section class="card">
+    <h2>2. Elemen kompetensi dan KUK</h2>
+    <label class="row" style="color:var(--tx);font-size:14px;margin-bottom:8px">
+      <input type="checkbox" id="useKuk" style="width:auto">
+      Gunakan KUK (matikan jika penilaian hanya per elemen kompetensi)
+    </label>
+    <div id="elems"></div>
+    <div class="row" style="margin-top:8px">
+      <button id="addEl">+ Tambah elemen</button>
+      <span class="hint">
+        Gunakan tombol − dan + untuk menentukan KUK sampai nomor berapa pada tiap elemen.
+      </span>
+    </div>
+  </section>
+
+  <!-- ===== 3. Peserta ===== -->
+  <section class="card">
+    <h2>3. Peserta</h2>
+    <label>Satu nama per baris (bisa tempel dari Excel)</label>
+    <textarea id="names" placeholder="Nama peserta 1&#10;Nama peserta 2"></textarea>
+  </section>
+
+  <!-- ===== 4. Tabel Penilaian ===== -->
+  <section class="card">
+    <h2>4. Tabel penilaian</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="allL">Semua L</button>
+      <span class="sp"></span>
+      <button id="expOne" class="p">Ekspor unit ini (.xlsx)</button>
+      <button id="expAll">Ekspor semua unit (.xlsx)</button>
+    </div>
+    <div class="wrap"><table id="tbl"></table></div>
+    <div class="rek" id="rek"></div>
+    <div class="hint">
+      Klik sel untuk bergantian L (layak) dan BL (belum layak).
+      Hasil akhir BL jika ada satu KUK yang BL, L jika semuanya L.
+    </div>
+    <div class="hint" id="msg"></div>
+  </section>
+
+</main>
+
+<!-- App script -->
+<script src="logo-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

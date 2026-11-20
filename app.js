@@ -599,41 +599,76 @@ async function exportXlsx(all) {
 function pdfPage(doc, u) {
   const K = u.useKuk !== false, s = eff(u), N = S.names;
   const tot = s.reduce((a, b) => a + b, 0);
-  const W = doc.internal.pageSize.getWidth();
+  const W  = doc.internal.pageSize.getWidth();
   const Hh = doc.internal.pageSize.getHeight();
-  const M = 12, CW = W - 2 * M;
+  const M  = 10;          // margin kiri/kanan/atas
+  const CW = W - 2 * M;
+
+  // ── Ruang tetap yang PASTI dibutuhkan di luar tabel ──────────────
+  const LOGO_H   = 20;    // logo
+  const GAP1     = 3;     // logo → judul
+  const JUDUL_H  = 7;     // bar judul
+  const GAP2     = 4;     // judul → info
+  const INFO_H   = 11;    // 2 baris info (program + unit 1 baris)
+  const GAP3     = 2;     // info → tabel
+  const FOOTER_H = 46;    // catatan + tanggal + nama penjab (ruang tanda tangan)
+  const GAP_FT   = 6;     // tabel → footer
+
+  // Tinggi header tabel (1 atau 2 baris × ± 7 mm per baris)
+  const HEAD_H   = K ? 14 : 7;
+
+  // Tinggi halaman yang tersisa untuk BARIS DATA tabel
+  const fixedH = M + LOGO_H + GAP1 + JUDUL_H + GAP2 + INFO_H + GAP3
+               + HEAD_H + GAP_FT + FOOTER_H + M;
+  const availForRows = Hh - fixedH;
+
+  // Tinggi per baris data: minimal 5 mm, maksimal 7 mm
+  // Hitung agar semua baris peserta muat; kalau terlalu kecil pakai 4 mm minimum
+  const nRows   = Math.max(N.length, 1);
+  let rowH = availForRows / nRows;
+  rowH = Math.min(7, Math.max(4, rowH));
+
+  // Font size tabel: proporsional dengan rowH, kisaran 6–9 pt
+  const tblFs   = Math.min(9, Math.max(6, rowH * 1.15));
+  const cellPad = Math.min(1.4, Math.max(0.6, rowH * 0.18));
+
+  // ── Hitung ulang INFO_H sebenarnya (unit bisa 2 baris) ──────────
+  const vx = M + 40;
+  const unitText = doc.splitTextToSize((u.code || '') + ' / ' + (u.title || ''), CW - 40);
+  const infoH_real = 5 + 4.5 * unitText.length + 2;
+
+  // ── Mulai menggambar ─────────────────────────────────────────────
   let y = M;
 
-  // logo Kemnaker, kiri atas
-  const lh = 22, lw = lh * 192 / 256;
+  // Logo
+  const lh = LOGO_H, lw = lh * 192 / 256;
   doc.addImage('data:image/png;base64,' + LOGO_B64, 'PNG', M, y, lw, lh);
-  y += lh + 4;
+  y += lh + GAP1;
 
-  // judul (bar hitam)
+  // Judul (bar hitam)
   doc.setFillColor(0, 0, 0);
-  doc.rect(M, y, CW, 7, 'F');
+  doc.rect(M, y, CW, JUDUL_H, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text('PENILAIAN PELATIHAN BERBASIS KOMPETENSI', W / 2, y + 4.9, { align: 'center' });
-  y += 7 + 5;
+  y += JUDUL_H + GAP2;
 
-  // program & unit
+  // Info program & unit
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  const vx = M + 42;
-  doc.text('Program Pelatihan', M + 4, y);
+  doc.text('Program Pelatihan', M + 2, y);
   doc.text(String(S.program || ''), vx, y);
-  y += 5.5;
-  doc.text('Unit Kompetensi', M + 4, y);
-  const ul = doc.splitTextToSize((u.code || '') + ' / ' + (u.title || ''), W - M - vx);
-  doc.text(ul, vx, y);
-  y += 5 * ul.length + 3;
+  y += 5;
+  doc.text('Unit Kompetensi', M + 2, y);
+  doc.text(unitText, vx, y);
+  y += 4.5 * unitText.length + GAP3;
 
-  // tabel: total lebar sama untuk semua unit (selalu selebar halaman)
-  const nameW = W > 250 ? 60 : 50, noW = 10, hasilW = 20;
+  // ── Tabel ────────────────────────────────────────────────────────
+  const nameW = 48, noW = 9, hasilW = 18;
   const kw = (CW - noW - nameW - hasilW) / tot;
+
   const head = [[
-    { content: 'No', rowSpan: K ? 2 : 1 },
+    { content: 'No',           rowSpan: K ? 2 : 1 },
     { content: 'Nama Peserta', rowSpan: K ? 2 : 1 },
     ...s.map((n, e) => ({ content: 'Elemen Kompetensi ' + (e + 1), colSpan: n })),
     { content: 'Hasil Akhir' }
@@ -644,41 +679,58 @@ function pdfPage(doc, u) {
     r2.push('L/BL');
     head.push(r2);
   }
+
   const body = N.map((nm, p) => {
     const row = [p + 1, nm];
     s.forEach((n, e) => { for (let k = 0; k < n; k++) row.push(u.bl[p + '_' + e + '_' + k] ? 'BL' : 'L'); });
     row.push(final(u, p));
     return row;
   });
+
   const colStyles = { 0: { cellWidth: noW }, 1: { cellWidth: nameW, halign: 'left' } };
   for (let c = 0; c < tot; c++) colStyles[2 + c] = { cellWidth: kw };
   colStyles[2 + tot] = { cellWidth: hasilW, fontStyle: 'bold' };
 
   const opts = {
-    startY: y, head, body, theme: 'grid',
+    startY: y,
+    head, body, theme: 'grid',
     margin: { left: M, right: M, top: M, bottom: M },
     tableWidth: CW,
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.4, halign: 'center', valign: 'middle',
-              lineColor: [0, 0, 0], lineWidth: 0.2, textColor: [0, 0, 0] },
-    headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8.5 },
+    // Paksa semua baris tingginya rowH agar tidak meluber
+    rowPageBreak: 'avoid',
+    styles: {
+      font: 'helvetica', fontSize: tblFs,
+      cellPadding: cellPad,
+      halign: 'center', valign: 'middle',
+      lineColor: [0, 0, 0], lineWidth: 0.2,
+      textColor: [0, 0, 0],
+      minCellHeight: rowH
+    },
+    headStyles: {
+      fillColor: [255, 255, 255], textColor: [0, 0, 0],
+      fontStyle: 'bold', fontSize: Math.min(8.5, tblFs),
+      minCellHeight: rowH * 0.85
+    },
     columnStyles: colStyles,
     didParseCell: d => {
-      if (d.section === 'body' && d.cell.raw === 'BL') d.cell.styles.textColor = [192, 0, 0];
+      if (d.section === 'body' && d.cell.raw === 'BL')
+        d.cell.styles.textColor = [192, 0, 0];
     }
   };
+
   if (typeof doc.autoTable === 'function') doc.autoTable(opts);
   else window.jspdf.autoTable(doc, opts);
 
-  // footer: catatan, tempat/tanggal, penjab
-  let fy = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 8;
-  if (fy + 52 > Hh - M) { doc.addPage(); fy = M + 4; }
+  // ── Footer — selalu di halaman yang sama, dikunci ke bawah ───────
+  // Pakai posisi tetap dari bawah halaman agar tidak pernah meluber
+  const fy = Hh - M - FOOTER_H + 2;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
   doc.text('Catatan :', M + 2, fy);
-  const cx = W - M - 38;
-  doc.text((S.tempat || '') + ', ' + fmtTgl(), cx, fy + 8, { align: 'center' });
-  doc.text('Penjab', cx, fy + 14, { align: 'center' });
+  const cx = W - M - 36;
+  doc.text((S.tempat || '') + ', ' + fmtTgl(), cx, fy + 8,      { align: 'center' });
+  doc.text('Penjab',                            cx, fy + 14,     { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  doc.text(String(S.penjab || ''), cx, fy + 14 + 24, { align: 'center' });
+  doc.text(String(S.penjab || ''),              cx, fy + 14 + 22, { align: 'center' });
 }
 
 function exportPdf(all) {

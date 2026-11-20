@@ -193,6 +193,21 @@ $('names').oninput = e => {
   $(id).oninput = e => { S[id] = e.target.value; save(); };
 });
 
+// ========== Lebar tabel seragam ==========
+// Jumlah kolom KUK terbanyak di antara semua unit. Unit dengan KUK lebih sedikit
+// dilebarkan kolomnya supaya total lebar tabel sama dengan unit yang paling banyak.
+function maxTotAll() {
+  return Math.max(1, ...Object.keys(S.units).map(k => eff(unit(k)).reduce((a, b) => a + b, 0)));
+}
+
+// Lebar tiap kolom KUK (satuan karakter Excel) agar total lebar semua tabel sama.
+// SheetJS menyimpan lebar kolom = wch + 0.832, jadi padding ini ikut dihitung
+// (kalau tidak, tabel dengan kolom lebih banyak jadi sedikit lebih lebar).
+const COL_PAD = 0.83203125;
+function kukWch(tot) {
+  return maxTotAll() * (7 + COL_PAD) / tot - COL_PAD;
+}
+
 // ========== Export: build worksheet ==========
 function sheetFor(u) {
   const K = u.useKuk !== false;
@@ -338,7 +353,7 @@ function sheetFor(u) {
     { wch: 2 },                              // A: margin
     { wch: 5 },                              // B: No
     { wch: 25 },                             // C: Nama Peserta
-    ...Array(tot).fill({ wch: 7 }),          // D..: KUK
+    ...Array(tot).fill({ wch: kukWch(tot) }),   // D..: KUK (total lebar sama untuk semua unit)
     { wch: 9 }                               // Hasil Akhir
   ];
 
@@ -580,8 +595,121 @@ async function exportXlsx(all) {
   }
 }
 
+// ========== Export: PDF ==========
+function pdfPage(doc, u) {
+  const K = u.useKuk !== false, s = eff(u), N = S.names;
+  const tot = s.reduce((a, b) => a + b, 0);
+  const W = doc.internal.pageSize.getWidth();
+  const Hh = doc.internal.pageSize.getHeight();
+  const M = 12, CW = W - 2 * M;
+  let y = M;
+
+  // logo Kemnaker, kiri atas
+  const lh = 22, lw = lh * 192 / 256;
+  doc.addImage('data:image/png;base64,' + LOGO_B64, 'PNG', M, y, lw, lh);
+  y += lh + 4;
+
+  // judul (bar hitam)
+  doc.setFillColor(0, 0, 0);
+  doc.rect(M, y, CW, 7, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('PENILAIAN PELATIHAN BERBASIS KOMPETENSI', W / 2, y + 4.9, { align: 'center' });
+  y += 7 + 5;
+
+  // program & unit
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  const vx = M + 42;
+  doc.text('Program Pelatihan', M + 4, y);
+  doc.text(String(S.program || ''), vx, y);
+  y += 5.5;
+  doc.text('Unit Kompetensi', M + 4, y);
+  const ul = doc.splitTextToSize((u.code || '') + ' / ' + (u.title || ''), W - M - vx);
+  doc.text(ul, vx, y);
+  y += 5 * ul.length + 3;
+
+  // tabel: total lebar sama untuk semua unit (selalu selebar halaman)
+  const nameW = W > 250 ? 60 : 50, noW = 10, hasilW = 20;
+  const kw = (CW - noW - nameW - hasilW) / tot;
+  const head = [[
+    { content: 'No', rowSpan: K ? 2 : 1 },
+    { content: 'Nama Peserta', rowSpan: K ? 2 : 1 },
+    ...s.map((n, e) => ({ content: 'Elemen Kompetensi ' + (e + 1), colSpan: n })),
+    { content: 'Hasil Akhir' }
+  ]];
+  if (K) {
+    const r2 = [];
+    s.forEach((n, e) => { for (let k = 0; k < n; k++) r2.push('KUK ' + (e + 1) + '.' + (k + 1)); });
+    r2.push('L/BL');
+    head.push(r2);
+  }
+  const body = N.map((nm, p) => {
+    const row = [p + 1, nm];
+    s.forEach((n, e) => { for (let k = 0; k < n; k++) row.push(u.bl[p + '_' + e + '_' + k] ? 'BL' : 'L'); });
+    row.push(final(u, p));
+    return row;
+  });
+  const colStyles = { 0: { cellWidth: noW }, 1: { cellWidth: nameW, halign: 'left' } };
+  for (let c = 0; c < tot; c++) colStyles[2 + c] = { cellWidth: kw };
+  colStyles[2 + tot] = { cellWidth: hasilW, fontStyle: 'bold' };
+
+  const opts = {
+    startY: y, head, body, theme: 'grid',
+    margin: { left: M, right: M, top: M, bottom: M },
+    tableWidth: CW,
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.4, halign: 'center', valign: 'middle',
+              lineColor: [0, 0, 0], lineWidth: 0.2, textColor: [0, 0, 0] },
+    headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 8.5 },
+    columnStyles: colStyles,
+    didParseCell: d => {
+      if (d.section === 'body' && d.cell.raw === 'BL') d.cell.styles.textColor = [192, 0, 0];
+    }
+  };
+  if (typeof doc.autoTable === 'function') doc.autoTable(opts);
+  else window.jspdf.autoTable(doc, opts);
+
+  // footer: catatan, tempat/tanggal, penjab
+  let fy = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 8;
+  if (fy + 52 > Hh - M) { doc.addPage(); fy = M + 4; }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  doc.text('Catatan :', M + 2, fy);
+  const cx = W - M - 38;
+  doc.text((S.tempat || '') + ', ' + fmtTgl(), cx, fy + 8, { align: 'center' });
+  doc.text('Penjab', cx, fy + 14, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.text(String(S.penjab || ''), cx, fy + 14 + 24, { align: 'center' });
+}
+
+function exportPdf(all) {
+  if (!S.names.length) { $('msg').textContent = 'Isi daftar peserta dulu.'; return; }
+  const lib = window.jspdf && window.jspdf.jsPDF;
+  if (!lib) { $('msg').textContent = 'Library PDF belum termuat. Periksa koneksi internet lalu muat ulang halaman.'; return; }
+  try {
+    const keys = all
+      ? Object.keys(S.units).filter(k => S.units[k].code || S.units[k].title || k === S.cur)
+      : [S.cur];
+    if (!keys.includes(S.cur)) keys.push(S.cur);
+
+    // selalu kertas lanskap
+    const doc = new lib({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    keys.forEach((k, i) => {
+      if (i > 0) doc.addPage();
+      pdfPage(doc, unit(k));
+    });
+    doc.save(all
+      ? 'penilaian-semua-unit.pdf'
+      : 'penilaian-' + (U().code.split('.')[2] || 'unit') + '.pdf');
+    $('msg').textContent = '';
+  } catch (e) {
+    $('msg').textContent = 'Gagal membuat PDF: ' + (e.message || e);
+  }
+}
+
 $('expOne').onclick = () => exportXlsx(false);
 $('expAll').onclick = () => exportXlsx(true);
+$('pdfOne').onclick = () => exportPdf(false);
+$('pdfAll').onclick = () => exportPdf(true);
 
 // ========== Init ==========
 ['program', 'tempat', 'tanggal', 'penjab'].forEach(id => { $(id).value = S[id] || ''; });

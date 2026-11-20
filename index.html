@@ -10,6 +10,10 @@
   <!-- JSZip untuk embed logo ke xlsx -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
+  <!-- jsPDF + AutoTable untuk unduh PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
   <!-- Stylesheet -->
   <link rel="stylesheet" href="style.css">
 </head>
@@ -19,7 +23,7 @@
   <h1>Penilaian Pelatihan Berbasis Kompetensi</h1>
   <p class="sub">
     Ketik unit kompetensi, atur jumlah KUK tiap elemen, tempel daftar peserta,
-    klik sel untuk mengganti L / BL, lalu ekspor ke Excel.
+    klik sel untuk mengganti L / BL, lalu ekspor ke Excel atau unduh sebagai PDF.
   </p>
 
   <!-- ===== 1. Informasi & Unit Kompetensi ===== -->
@@ -92,6 +96,11 @@
       <button id="expOne" class="p">Ekspor unit ini (.xlsx)</button>
       <button id="expAll">Ekspor semua unit (.xlsx)</button>
     </div>
+    <div class="row" style="margin-bottom:10px">
+      <span class="sp"></span>
+      <button id="pdfOne" class="p">Unduh PDF unit ini</button>
+      <button id="pdfAll">Unduh PDF semua unit</button>
+    </div>
     <div class="wrap"><table id="tbl"></table></div>
     <div class="rek" id="rek"></div>
     <div class="hint">
@@ -106,5 +115,184 @@
 <!-- App script -->
 <script src="logo-data.js"></script>
 <script src="app.js"></script>
+
+<!-- ===== WELCOME POPUP ===== -->
+<div id="welcomeOverlay">
+  <div id="welcomeBox">
+    <div class="wp-emoji">👋</div>
+    <h2 class="wp-title">Welcome Back!!!</h2>
+    <p class="wp-sub">Apakah website ini bermanfaat untuk Anda?</p>
+
+    <!-- Area tombol: Ya tetap di kiri, Tidak melayang bebas via fixed -->
+    <div class="wp-btn-row">
+      <button id="btnYa" class="wp-btn wp-btn-ya" onclick="closePopup(true)">✅ Ya</button>
+      <button id="btnTidak" class="wp-btn wp-btn-tidak">❌ Tidak</button>
+    </div>
+
+    <p id="thankMsg" class="wp-thank"></p>
+  </div>
+</div>
+
+<style>
+/* ---------- Overlay ---------- */
+#welcomeOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+/* ---------- Kotak popup ---------- */
+#welcomeBox {
+  background: #fff;
+  border-radius: 20px;
+  padding: 36px 40px 28px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  width: min(420px, 90vw);
+  animation: wp-popIn .4s cubic-bezier(.175,.885,.32,1.275) both;
+  position: relative;         /* jangkar clamp tombol Tidak */
+  overflow: visible;
+}
+
+/* ---------- Konten ---------- */
+.wp-emoji  { font-size: 48px; margin-bottom: 8px; }
+.wp-title  { margin: 0 0 8px; font-size: 1.45rem; color: #1a1a2e; }
+.wp-sub    { margin: 0 0 28px; color: #555; font-size: 1rem; line-height: 1.5; }
+.wp-thank  { margin: 16px 0 0; font-size: .88rem; color: #888; min-height: 20px; }
+
+/* ---------- Baris tombol ---------- */
+.wp-btn-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  min-height: 52px;           /* ruang agar Ya tidak loncat */
+  align-items: center;
+}
+
+/* ---------- Tombol dasar ---------- */
+.wp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 130px;               /* lebar seragam */
+  height: 46px;
+  border: none;
+  border-radius: 10px;
+  font-size: .95rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+
+/* ---------- Tombol Ya ---------- */
+.wp-btn-ya {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(37,99,235,.35);
+  transition: background .2s, transform .15s;
+}
+.wp-btn-ya:hover {
+  background: #1d4ed8;
+  transform: scale(1.05);
+}
+
+/* ---------- Tombol Tidak ---------- */
+.wp-btn-tidak {
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(239,68,68,.35);
+  transition: none;
+  /* pointer-events tetap aktif agar posisi bisa dibaca,
+     tapi onclick tidak dipasang — klik tidak ada efeknya */
+}
+
+/* ---------- Animasi ---------- */
+@keyframes wp-popIn {
+  from { transform: scale(.6); opacity: 0; }
+  to   { transform: scale(1);  opacity: 1; }
+}
+@keyframes wp-fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+</style>
+
+<script>
+(function () {
+  const overlay  = document.getElementById('welcomeOverlay');
+  const box      = document.getElementById('welcomeBox');
+  const btnTidak = document.getElementById('btnTidak');
+  const thankMsg = document.getElementById('thankMsg');
+
+  /* ── Tombol Tidak awalnya INLINE di samping Ya ───────────────────── */
+  /* Saat cursor mendekati, switch ke fixed dan mulai kabur            */
+  let isFloating = false;
+
+  function makeFloat() {
+    if (isFloating) return;
+    isFloating = true;
+    /* Ambil posisi layar saat masih inline, lalu pasang di fixed */
+    const br = btnTidak.getBoundingClientRect();
+    btnTidak.style.position = 'fixed';
+    btnTidak.style.left = br.left + 'px';
+    btnTidak.style.top  = br.top  + 'px';
+    /* Tambah placeholder agar baris tombol tidak kolaps */
+    const ph = document.createElement('div');
+    ph.style.width  = br.width  + 'px';
+    ph.style.height = br.height + 'px';
+    ph.style.flexShrink = '0';
+    btnTidak.parentNode.appendChild(ph);
+  }
+  window.addEventListener('resize', function () {
+    /* Reset ke inline jika window di-resize */
+    if (!isFloating) return;
+  });
+
+  /* ── Deteksi cursor mendekati tombol Tidak (radius 120px) ───────── */
+  document.addEventListener('mousemove', function (e) {
+    const br    = btnTidak.getBoundingClientRect();
+    const btnCX = br.left + br.width  / 2;
+    const btnCY = br.top  + br.height / 2;
+
+    const dx   = btnCX - e.clientX;
+    const dy   = btnCY - e.clientY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 120) return;   /* cursor masih jauh, diam */
+
+    /* Pastikan tombol sudah floating sebelum digerakkan */
+    makeFloat();
+
+    /* Lari ke arah berlawanan dari cursor */
+    const flee = 160;
+    let newX = btnCX + (dx / (dist || 1)) * flee;
+    let newY = btnCY + (dy / (dist || 1)) * flee;
+
+    /* Clamp dalam batas popup dengan margin 8px */
+    const boxR = box.getBoundingClientRect();
+    const hw = br.width  / 2 + 8;
+    const hh = br.height / 2 + 8;
+    newX = Math.max(boxR.left + hw, Math.min(boxR.right  - hw, newX));
+    newY = Math.max(boxR.top  + hh, Math.min(boxR.bottom - hh, newY));
+
+    btnTidak.style.left = (newX - br.width  / 2) + 'px';
+    btnTidak.style.top  = (newY - br.height / 2) + 'px';
+  });
+
+  /* ── Tutup popup (hanya lewat tombol Ya) ────────────────────────── */
+  window.closePopup = function (isYes) {
+    thankMsg.textContent = isYes
+      ? '😊 Terima kasih atas feedback-nya!'
+      : '😔 Terima kasih, kami akan terus berkembang!';
+    setTimeout(function () {
+      overlay.style.animation = 'wp-fadeOut .4s forwards';
+      setTimeout(function () { overlay.remove(); }, 420);
+    }, 900);
+  };
+})();
+</script>
+
 </body>
 </html>
